@@ -6,7 +6,7 @@ import pickle
 import os
 from time import time
 import multiprocessing as mp
-from mip import Model, xsum, BINARY, CONTINUOUS 
+from mip import Model, xsum, BINARY, CONTINUOUS, MAXIMIZE, MINIMIZE
 import tqdm
 from collections import Counter
 from classGenSage import classGenSage
@@ -59,7 +59,7 @@ class LPGenSage(classGenSage):
 		
 		# self.AB_classes_cleaned=[(A,B) for (A,B) in tqdm.tqdm(self.AB_classes) if all(len(set(self.dict_lines[line]).intersection(set(B)))>0 for line in A)>0]
 		# print("AB classes are cleaned, the total size is", len(self.AB_classes_cleaned))
-		AB_classesPath=os.path.join(self.pathFolder,'AB_classes_{}.pickle'.format(self.p))
+		AB_classesPath=os.path.join(self.pathFolder,'ABclasses_{}.pickle'.format(self.p))
 		with open(AB_classesPath, 'rb') as f:
 			self.AB_classes=pickle.load(f) 
 			print("AB_classes loaded. Total is ", len(self.AB_classes))
@@ -260,14 +260,61 @@ class LPGenSage(classGenSage):
 
 		return results
 
+	def PlaneLP(self,triple_classes):
+		LP_weights=[]
+		print("Loading Columns")
+		for tripleClass in tqdm.tqdm(triple_classes):
+		    try:
+		        weightPath=os.path.join(AB_classes_flat.pathFolder,'LP_weights_{}.pickle'.format(tripleClass))
+		        with open(weightPath, 'rb') as f:
+		            LP_weights+=pickle.load(f) 
+		        counter+=1
+		        print(counter)
+		    except Exception:
+		        pass
+
+		tripleDict={triple:ind for ind,triple in enumerate(self.triple_classes)}
+		#Re-arrange the LP Values:
+		print("Pre-processing the constraints")
+		AB_constraints={ABclass:dict() for ABclass in self.AB_classes}
+		for quadruple in tqdm.tqdm(LP_weights):
+			A=quadruple[0]
+			B=quadruple[1]
+			triple=quadruple[2]
+			value=quadruple[3]
+			AB_constraints[(A,B)][triple]=value
+
+
+		print("Creating the model")
+		m=Model(sense=MAXIMIZE, solver_name='CBC')
+
+		#Variables
+		print("Creating the variables")
+		y={tripleClass:m.add_var(name='y_{}'.format(tripleDict[tripleClass]), var_type=CONTINUOUS, ub=1, lb=0) for tripleClass in triple_classes}
+		print("Done: Number of variables is ", len(y))
+
+		#Constraints
+		print("Creating the constraints")
+		for AB_class in tqdm.tqdm(AB_constraints.keys()):
+			m.add_constr(xsum(AB_constraints[AB_class][tripleClass]*y[tripleClass] for tripleClass in AB_constraints[AB_class].keys())<=1)
+		
+		# for tripleClass in triple_classes:
+		# 	if len(tripleClass[2])>3 and len(tripleClass[2])<12:
+		# 		m.add_constr(y[tripleClass]<=0)
+		
+
+		m.objective=xsum(AB_constraints[self.AB_classes[0]][tripleClass]*y[tripleClass] for tripleClass in AB_constraints[self.AB_classes[0]].keys())
+
+		return m
 
 
 
 
-Plane=LPGenSage(4)
-triples=[Plane.triple_classes[i] for i in [1514,1515,1516]]
-for triple in triples:
-	weights=Plane.LP_build_triple(triple)
+
+# Plane=LPGenSage(4)
+# triples=[Plane.triple_classes[i] for i in [1514,1515,1516]]
+# for triple in triples:
+# 	weights=Plane.LP_build_triple(triple)
 	# maxval=0
 	# for weight in weights:
 	# 	val=weight[3]
